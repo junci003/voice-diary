@@ -1,26 +1,46 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookHeart, Search, LogIn, LogOut, UserRound } from 'lucide-react'
+import { BookHeart, Search, LogIn, LogOut, UserRound, Cloud } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import RecordPanel, { type DraftData } from '@/sections/RecordPanel'
 import DiaryTimeline from '@/sections/DiaryTimeline'
 import AuthDialog from '@/sections/AuthDialog'
 import { deleteEntry, getAllEntries, saveEntry } from '@/lib/db'
-import { getSession, logout } from '@/lib/auth'
+import { getCurrentUser, logout, onAuthChange, type User } from '@/lib/auth'
+import { cloudEnabled } from '@/lib/supabase'
 import type { DiaryEntry } from '@/types/diary'
 
 export default function Home() {
   const [entries, setEntries] = useState<DiaryEntry[]>([])
   const [query, setQuery] = useState('')
-  const [user, setUser] = useState<string | null>(() => getSession())
+  const [user, setUser] = useState<User | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
-  const reload = useCallback(async () => {
-    setEntries(await getAllEntries(user))
-  }, [user])
+  const reload = useCallback(
+    async (u: User | null) => {
+      try {
+        setEntries(await getAllEntries(u))
+        setSyncError(null)
+      } catch (e) {
+        setSyncError(e instanceof Error ? e.message : '同步失败')
+      }
+    },
+    [],
+  )
 
+  // 恢复会话并订阅登录态
   useEffect(() => {
-    reload()
+    getCurrentUser().then(async (u) => {
+      setUser(u)
+      await reload(u)
+      setLoading(false)
+    })
+    return onAuthChange((u) => {
+      setUser(u)
+      reload(u)
+    })
   }, [reload])
 
   const handleSave = useCallback(
@@ -35,7 +55,7 @@ export default function Home() {
         tags: d.tags,
         images: d.images,
       })
-      await reload()
+      await reload(user)
     },
     [reload, user],
   )
@@ -44,15 +64,15 @@ export default function Home() {
     async (id: string) => {
       if (!window.confirm('确定删除这篇日记吗？删除后无法恢复。')) return
       await deleteEntry(user, id)
-      await reload()
+      await reload(user)
     },
     [reload, user],
   )
 
-  const handleLogout = () => {
-    if (!window.confirm(`退出「${user}」的登录吗？退出后将显示游客空间的日记。`)) return
-    logout()
-    setUser(null)
+  const handleLogout = async () => {
+    if (!window.confirm(`退出「${user?.name}」的登录吗？`)) return
+    await logout()
+    if (!cloudEnabled) setUser(null)
   }
 
   const filtered = useMemo(() => {
@@ -83,9 +103,10 @@ export default function Home() {
             )}
             {user ? (
               <div className="flex items-center gap-1.5">
-                <span className="flex items-center gap-1 text-sm bg-primary/10 text-primary rounded-full px-3 py-1">
-                  <UserRound className="w-3.5 h-3.5" />
-                  {user}
+                <span className="flex items-center gap-1 text-sm bg-primary/10 text-primary rounded-full px-3 py-1 max-w-44 truncate">
+                  {cloudEnabled && <Cloud className="w-3.5 h-3.5 shrink-0" />}
+                  <UserRound className="w-3.5 h-3.5 shrink-0" />
+                  {user.name}
                 </span>
                 <Button variant="ghost" size="icon" className="h-8 w-8" title="退出登录" onClick={handleLogout}>
                   <LogOut className="w-4 h-4" />
@@ -107,7 +128,12 @@ export default function Home() {
             <button type="button" className="text-primary underline underline-offset-2" onClick={() => setAuthOpen(true)}>
               登录
             </button>{' '}
-            后可拥有自己的独立日记空间
+            {cloudEnabled ? '后日记自动云端同步' : '后可拥有自己的独立日记空间'}
+          </p>
+        )}
+        {syncError && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center -mb-2">
+            {syncError}
           </p>
         )}
 
@@ -126,7 +152,9 @@ export default function Home() {
               />
             </div>
           </div>
-          {query && filtered.length === 0 ? (
+          {loading ? (
+            <p className="text-center py-10 text-muted-foreground">加载中…</p>
+          ) : query && filtered.length === 0 ? (
             <p className="text-center py-10 text-muted-foreground">没有找到匹配的日记</p>
           ) : (
             <DiaryTimeline entries={filtered} onDelete={handleDelete} />
@@ -135,10 +163,12 @@ export default function Home() {
       </main>
 
       <footer className="text-center text-xs text-muted-foreground pb-8">
-        所有数据仅保存在本机浏览器中，不会上传
+        {cloudEnabled && user
+          ? '日记已同步到云端，仅你的账号可见'
+          : '所有数据仅保存在本机浏览器中，不会上传'}
       </footer>
 
-      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} onSuccess={(name) => setUser(name)} />
+      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} onSuccess={(u) => setUser(u)} />
     </div>
   )
 }

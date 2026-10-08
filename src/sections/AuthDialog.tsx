@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { UserRound } from 'lucide-react'
+import { Cloud, HardDrive, UserRound } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { login, register, validatePassword, validateUsername } from '@/lib/auth'
+import { login, register, validateAccount, validatePassword, type User } from '@/lib/auth'
+import { cloudEnabled } from '@/lib/supabase'
 
 export default function AuthDialog({
   open,
@@ -20,17 +21,17 @@ export default function AuthDialog({
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  onSuccess: (username: string) => void
+  onSuccess: (user: User) => void
 }) {
   const [tab, setTab] = useState<'login' | 'register'>('login')
-  const [username, setUsername] = useState('')
+  const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const reset = () => {
-    setUsername('')
+    setAccount('')
     setPassword('')
     setConfirm('')
     setError(null)
@@ -38,17 +39,16 @@ export default function AuthDialog({
 
   const submit = async () => {
     setError(null)
-    const nameErr = validateUsername(username)
-    if (nameErr) return setError(nameErr)
+    const accErr = validateAccount(account)
+    if (accErr) return setError(accErr)
     const pwErr = validatePassword(password)
     if (pwErr) return setError(pwErr)
     if (tab === 'register' && password !== confirm) return setError('两次输入的密码不一致')
 
     setBusy(true)
     try {
-      if (tab === 'register') await register(username, password)
-      else await login(username, password)
-      onSuccess(username)
+      const user = tab === 'register' ? await register(account, password) : await login(account, password)
+      onSuccess(user)
       onOpenChange(false)
       reset()
     } catch (e) {
@@ -72,8 +72,18 @@ export default function AuthDialog({
             <UserRound className="w-5 h-5 text-primary" />
             账号
           </DialogTitle>
-          <DialogDescription>
-            当前为本地账号，数据保存在本机；后续接入云端后可同步日记。
+          <DialogDescription className="flex items-center gap-1.5">
+            {cloudEnabled ? (
+              <>
+                <Cloud className="w-3.5 h-3.5 shrink-0" />
+                云端账号：登录后日记自动加密同步，换设备也能看到。
+              </>
+            ) : (
+              <>
+                <HardDrive className="w-3.5 h-3.5 shrink-0" />
+                当前为本地账号，数据保存在本机。
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -85,12 +95,13 @@ export default function AuthDialog({
 
           <div className="space-y-3 mt-4">
             <div className="space-y-1.5">
-              <Label htmlFor="auth-username">用户名</Label>
+              <Label htmlFor="auth-account">{cloudEnabled ? '邮箱' : '用户名'}</Label>
               <Input
-                id="auth-username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="2-20 位中英文、数字或下划线"
+                id="auth-account"
+                type={cloudEnabled ? 'email' : 'text'}
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                placeholder={cloudEnabled ? 'you@example.com' : '2-20 位中英文、数字或下划线'}
                 autoComplete="username"
               />
             </div>

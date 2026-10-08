@@ -28,12 +28,20 @@ function dayLabel(ts: number) {
 
 function DiaryCard({ entry, onDelete }: { entry: DiaryEntry; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false)
-  const url = useMemo(() => URL.createObjectURL(entry.audioBlob), [entry.audioBlob])
-  const imageUrls = useMemo(() => (entry.images ?? []).map((b) => URL.createObjectURL(b)), [entry.images])
+  const url = useMemo(
+    () => entry.audioUrl ?? (entry.audioBlob ? URL.createObjectURL(entry.audioBlob) : ''),
+    [entry.audioUrl, entry.audioBlob],
+  )
+  const imageUrls = useMemo(
+    () => entry.imageUrls ?? (entry.images ?? []).map((b) => URL.createObjectURL(b)),
+    [entry.imageUrls, entry.images],
+  )
   useEffect(
     () => () => {
-      URL.revokeObjectURL(url)
-      imageUrls.forEach((u) => URL.revokeObjectURL(u))
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+      imageUrls.forEach((u) => {
+        if (u.startsWith('blob:')) URL.revokeObjectURL(u)
+      })
     },
     [url, imageUrls],
   )
